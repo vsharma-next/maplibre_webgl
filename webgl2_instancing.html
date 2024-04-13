@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebGL2 Instanced Geometry</title>
+    <style>
+      body {
+        margin: 0;
+        height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+      canvas {
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="glCanvas"></canvas>
+    <script>
+      const vertexSource = `#version 300 es
+        in vec3 position;
+        in mat4 instanceMatrix;
+
+        uniform mat4 u_projectionMatrix;
+
+        void main() {
+            gl_Position = u_projectionMatrix * instanceMatrix * vec4(position, 1.0);
+        }
+    `;
+
+      const fragmentSource = `#version 300 es
+        precision highp float;
+        out vec4 fragColor;
+        void main() {
+            fragColor = vec4(1.0, 0.0, 0.0, 1.0); // Red color
+        }
+    `;
+
+      const canvas = document.getElementById('glCanvas');
+      const gl = canvas.getContext('webgl2', { antialias: true });
+
+      // Set the display size of the canvas.
+      canvas.style.width = '100%';
+      canvas.style.height = '100%';
+
+      // Adjust the drawing buffer size to match the display size
+      const width = canvas.clientWidth * window.devicePixelRatio;
+      const height = canvas.clientHeight * window.devicePixelRatio;
+      canvas.width = width;
+      canvas.height = height;
+      gl.viewport(0, 0, width, height);
+
+      if (!gl) {
+        alert('WebGL2 is not supported by your browser.');
+        throw new Error('WebGL2 not supported');
+      }
+
+      const program = initShaders(gl, vertexSource, fragmentSource);
+      const positionAttributeLocation = gl.getAttribLocation(
+        program,
+        'position'
+      );
+      const instanceMatrixAttributeLocation = gl.getAttribLocation(
+        program,
+        'instanceMatrix'
+      );
+      const projectionMatrixUniformLocation = gl.getUniformLocation(
+        program,
+        'u_projectionMatrix'
+      );
+
+      const left = -2;
+      const right = 2;
+      const bottom = -2;
+      const myTop = 2;
+      const near = 0; // Adjust these as needed
+      const far = 1;
+      const projectionMatrix = new Float32Array([
+        2 / (right - left),
+        0,
+        0,
+        0,
+        0,
+        2 / (myTop - bottom),
+        0,
+        0,
+        0,
+        0,
+        -2 / (far - near),
+        0,
+        -(right + left) / (right - left),
+        -(myTop + bottom) / (myTop - bottom),
+        -(far + near) / (far - near),
+        1,
+      ]);
+      // Define geometry and indices
+      const vertices = new Float32Array([
+        0.0,
+        0.0,
+        0.0, // Vertex 0
+        1.0,
+        0.0,
+        0.0, // Vertex 1
+        0.0,
+        1.0,
+        0.0, // Vertex 2
+      ]);
+
+      const indices = new Uint16Array([0, 1, 2]);
+
+      // Define instancing matrices
+      const matrices = new Float32Array([
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0.5,
+        0.5,
+        0,
+        1, // Instance 1
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        -0.5,
+        -0.5,
+        0,
+        1, // Instance 2
+      ]);
+
+      const vertexArray = gl.createVertexArray();
+      gl.bindVertexArray(vertexArray);
+
+      const positionBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(positionAttributeLocation);
+      gl.vertexAttribPointer(
+        positionAttributeLocation,
+        3,
+        gl.FLOAT,
+        false,
+        0,
+        0
+      );
+
+      const indexBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+
+      const matrixBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, matrixBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, matrices, gl.STATIC_DRAW);
+
+      const numMatrices = 2;
+      for (let i = 0; i < 4; i++) {
+        const attrLoc = instanceMatrixAttributeLocation + i;
+        gl.enableVertexAttribArray(attrLoc);
+        gl.vertexAttribPointer(attrLoc, 4, gl.FLOAT, false, 64, i * 16);
+        gl.vertexAttribDivisor(attrLoc, 1);
+      }
+
+      function initShaders(gl, vertexSource, fragmentSource) {
+        const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexSource);
+        const fragmentShader = createShader(
+          gl,
+          gl.FRAGMENT_SHADER,
+          fragmentSource
+        );
+        const shaderProgram = gl.createProgram();
+        gl.attachShader(shaderProgram, vertexShader);
+        gl.attachShader(shaderProgram, fragmentShader);
+        gl.linkProgram(shaderProgram);
+        if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+          console.error('Could not initialize shaders');
+          console.error(gl.getProgramInfoLog(shaderProgram));
+          gl.deleteProgram(shaderProgram);
+          return null;
+        }
+        return shaderProgram;
+      }
+
+      function createShader(gl, type, source) {
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+          console.error('Shader compilation failed');
+          console.error(gl.getShaderInfoLog(shader));
+          gl.deleteShader(shader);
+          return null;
+        }
+        return shader;
+      }
+
+      function render() {
+        gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        gl.useProgram(program);
+        gl.uniformMatrix4fv(
+          projectionMatrixUniformLocation,
+          false,
+          projectionMatrix
+        );
+        gl.bindVertexArray(vertexArray);
+        gl.drawElementsInstanced(
+          gl.TRIANGLES,
+          indices.length,
+          gl.UNSIGNED_SHORT,
+          0,
+          numMatrices
+        );
+        console.log('I am here !');
+      }
+
+      render();
+    </script>
+  </body>
+</html>
